@@ -1,0 +1,17 @@
+# Environnement — ne jamais versionner
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Sorties et données locales
+articles.json
+*.json.bak
+
+# IDE
+.idea/
+.vscode/
