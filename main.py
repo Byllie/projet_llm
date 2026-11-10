@@ -9,7 +9,7 @@ Usage :
 import argparse
 import json
 
-from db_manager import create_schema, db_connect, insert_articles
+from bd import create_schema, db_connect, insert_articles
 from embed_articles import EMBEDDING_DIM, embed_articles
 from fetch_articles import fetch_topic_articles
 
