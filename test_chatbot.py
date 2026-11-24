@@ -156,6 +156,21 @@ class ApiTests(unittest.TestCase):
         result = self.client.post("/profiles", json={"username": "alice"})
         self.assertEqual(result.status_code, 422)
 
+    @patch("api.embed_texts")
+    @patch("api.get_profile", return_value=("Language models", "text-embedding-3-small"))
+    @patch("api.db_connect")
+    def test_read_profile_does_not_recalculate_embedding(self, connect, profile, embed):
+        result = self.client.get("/profiles/alice")
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(result.json()["interests"], "Language models")
+        embed.assert_not_called()
+        connect.return_value.close.assert_called_once()
+
+    @patch("api.get_profile", return_value=None)
+    @patch("api.db_connect")
+    def test_read_unknown_profile_returns_404(self, connect, profile):
+        self.assertEqual(self.client.get("/profiles/unknown").status_code, 404)
+
     @patch("api.chat")
     def test_valid_request_and_history(self, chat):
         chat.return_value = {"answer": "Réponse", "sources": [], "article_ids": []}

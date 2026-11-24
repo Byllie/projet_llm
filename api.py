@@ -148,6 +148,19 @@ def create_profile(body: ProfileIn):
         conn.close()
 
 
+@app.get("/profiles/{username}")
+def read_profile(username: str):
+    """Retrouve un profil sans recalculer ou modifier son embedding."""
+    conn = db_connect()
+    try:
+        profile = get_profile(conn, username)
+        if not profile:
+            raise HTTPException(404, "Profil inconnu")
+        return {"username": username, "interests": profile[0], "embedding_model": profile[1]}
+    finally:
+        conn.close()
+
+
 @app.post("/profiles/{username}/collect")
 def collect_for_profile(username: str, limit: int = 20, days: int = 365):
     """Collecte des articles correspondant aux intérêts du profil.

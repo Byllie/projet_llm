@@ -27,6 +27,54 @@ sudo docker compose run --rm app python3 recommend.py --user alice
 Pour modifier les intérêts, relancer la première commande avec un nouveau texte.
 Ajouter `--limit 5` pour obtenir cinq résultats. Seuls les articles en base sont utilisés.
 
+## Interface React
+
+Démarrer l'interface et l'API (la base existante est conservée) :
+
+```bash
+sudo env -u OPENAI_API_KEY docker compose --env-file .env up -d --build api frontend
+```
+
+Ouvrir [http://localhost:5173](http://localhost:5173).
+Aucune installation de Node.js n'est nécessaire avec Docker.
+
+- Créer un profil avec ses intérêts ou un ORCID, ou retrouver un profil existant.
+- Collecter des articles, consulter les recommandations et leurs abstracts.
+- Cliquer sur « En discuter » pour interroger le chatbot sur un article précis.
+- Dans « Newsletter », générer une édition avec les liens trackés.
+
+Le nom du dernier profil est mémorisé dans le navigateur. Le profil est chargé
+depuis la base sans recalcul de son embedding. Cette version locale n'a pas
+d'authentification : le nom du profil n'est pas un mot de passe.
+« Quitter ce profil » revient à l'accueil sans supprimer les données en base.
+Les conversations et la dernière newsletter affichée restent en mémoire pendant
+la session. « Nouvelle discussion » permet de changer de sujet.
+
+La génération d'une newsletter marque ses articles comme déjà proposés et les
+retire des recommandations. Elle n'envoie pas d'e-mail. Les liens trackés restent
+ceux de l'API (`APP_BASE_URL`, par défaut `http://localhost:8000`).
+
+Les clés API restent dans le backend. Le frontend utilise le proxy `/api` ;
+aucune clé ne doit être ajoutée dans un fichier `VITE_*`.
+
+Pour développer sans reconstruire l'image (Node.js 20.19+ ou 22+) :
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+L'API doit tourner sur le port 8000. `API_PROXY_TARGET` permet de changer cette
+adresse pour le serveur de développement. Pour vérifier l'interface :
+
+```bash
+npm test
+npm run build
+```
+
+Les tests de l'interface simulent l'API et ne font aucun appel OpenAI.
+
 ## Chatbot scientifique
 
 Le chatbot cherche jusqu'à cinq articles dans la base, puis utilise leurs titres
@@ -74,9 +122,8 @@ Documentation interactive : [http://localhost:8000/docs](http://localhost:8000/d
 Il renvoie `answer`, `sources` (titres, auteurs, DOI de la base) et `article_ids`.
 Pour une nouvelle recherche, envoyer un historique et des IDs vides.
 
-L'API est prête pour une future interface React : les origines locales sur les
-ports 5173 et 3000 sont autorisées. `FRONTEND_ORIGINS` permet de changer cette liste.
-Cette première version locale n'ajoute ni interface React ni authentification.
+Les origines locales sur les ports 5173 et 3000 sont autorisées.
+`FRONTEND_ORIGINS` permet de changer cette liste pour un client direct.
 L'historique reste dans le client pendant la discussion, sans table de conversations.
 La pertinence des réponses dépend des articles disponibles ; le modèle est instruit
 de signaler quand les abstracts ne suffisent pas, ce qui reste à vérifier à l'usage.
