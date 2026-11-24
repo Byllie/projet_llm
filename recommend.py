@@ -2,7 +2,16 @@
 
 import argparse
 
-from bd import create_profiles_table, create_schema, db_connect, find_top_articles, get_profile, upsert_profile
+from bd import (
+    create_clicks_table,
+    create_profiles_table,
+    create_schema,
+    create_sent_articles_table,
+    db_connect,
+    find_top_articles,
+    get_profile,
+    upsert_profile,
+)
 from embed_articles import EMBEDDING_DIM, EMBEDDING_MODEL, embed_texts
 
 
@@ -35,6 +44,8 @@ def main():
     try:
         create_schema(conn, dim=EMBEDDING_DIM)
         create_profiles_table(conn, dim=EMBEDDING_DIM)
+        create_clicks_table(conn)
+        create_sent_articles_table(conn)
         if args.interests is not None:
             save_profile(conn, username, args.interests)
 

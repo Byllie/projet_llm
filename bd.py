@@ -123,8 +123,41 @@ def upsert_profile(conn, username, interests, embedding, model):
     conn.commit()
 
 
+def create_sent_articles_table(conn):
+    """Crée la table sent_articles (articles déjà recommandés par utilisateur)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sent_articles (
+                username   TEXT NOT NULL,
+                article_id INTEGER NOT NULL REFERENCES articles(id),
+                sent_at    TIMESTAMPTZ DEFAULT now(),
+                PRIMARY KEY (username, article_id)
+            );
+            """
+        )
+    conn.commit()
+
+
+def record_recommended(conn, username, article_ids):
+    """Marque les articles comme déjà recommandés à cet utilisateur."""
+    with conn.cursor() as cur:
+        cur.executemany(
+            """
+            INSERT INTO sent_articles (username, article_id)
+            VALUES (%s, %s)
+            ON CONFLICT (username, article_id) DO NOTHING
+            """,
+            [(username, aid) for aid in article_ids],
+        )
+    conn.commit()
+
+
 def find_top_articles(conn, username, limit):
-    """Top-K des articles les plus proches du profil, par similarité cosinus."""
+    """Top-K des articles les plus proches du profil, par similarité cosinus.
+
+    Exclut les articles déjà recommandés à cet utilisateur (sent_articles).
+    """
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(
             """
@@ -133,10 +166,14 @@ def find_top_articles(conn, username, limit):
             FROM articles a
             JOIN (SELECT embedding FROM profiles WHERE username = %s) AS p ON true
             WHERE a.embedding IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM sent_articles s
+                  WHERE s.username = %s AND s.article_id = a.id
+              )
             ORDER BY a.embedding <=> p.embedding, a.id
             LIMIT %s
             """,
-            (username, limit),
+            (username, username, limit),
         )
         return cur.fetchall()
 
@@ -192,6 +229,7 @@ def update_profile_embedding(conn, username, article_id, weight=0.1):
 
     new = normalise((1 - weight) * profil + weight * article)  — le profil
     garde weight de chaque article lu, l'historique des clics s'accumule.
+    La dérive n'est pas bornée : c'est la requête de collecte qui s'y adapte.
     """
     with conn.cursor() as cur:
         cur.execute("SELECT embedding::text FROM articles WHERE id = %s", (article_id,))
@@ -199,7 +237,10 @@ def update_profile_embedding(conn, username, article_id, weight=0.1):
         if not row:
             return False
         article_emb = parse_vector(row[0])
-        cur.execute("SELECT embedding::text FROM profiles WHERE username = %s", (username,))
+        cur.execute(
+            "SELECT embedding::text FROM profiles WHERE username = %s",
+            (username,),
+        )
         row = cur.fetchone()
         if not row:
             return False
@@ -219,11 +260,29 @@ def update_profile_embedding(conn, username, article_id, weight=0.1):
     return True
 
 
+def get_recent_clicked(conn, username, limit=10):
+    """Titres des derniers articles cliqués par l'utilisateur (ordre récent)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT a.name
+            FROM clicks c JOIN articles a ON a.id = c.article_id
+            WHERE c.username = %s
+            ORDER BY c.clicked_at DESC
+            LIMIT %s
+            """,
+            (username, limit),
+        )
+        return [row[0] for row in cur.fetchall()]
+
+
 if __name__ == "__main__":
     conn = db_connect()
     try:
         create_schema(conn)
         create_profiles_table(conn)
-        print("Schéma créé (extension vector + tables articles et profiles).")
+        create_clicks_table(conn)
+        create_sent_articles_table(conn)
+        print("Schéma créé (extension vector + tables articles, profiles, clicks, sent_articles).")
     finally:
         conn.close()

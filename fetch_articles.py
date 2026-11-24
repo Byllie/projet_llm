@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import re
 import sys
 import time
 
@@ -121,3 +122,76 @@ def fetch_topic_articles(topic_name, days, limit, work_type="article", sort="cit
     articles = [to_article(w) for w in works]
     print(f"{len(articles)} articles collectés")
     return articles
+
+
+def search_works(query, from_date, limit, work_type="article"):
+    """Recherche plein texte OpenAlex (default.search), pertinence décroissante."""
+    works = []
+    cursor = "*"
+    params = {
+        "filter": (
+            f"default.search:{query},from_publication_date:{from_date},"
+            f"has_abstract:true,type:{work_type}"
+        ),
+        "select": SELECT_FIELDS,
+        "per-page": 200,
+        "sort": "relevance_score:desc",
+    }
+    while cursor and len(works) < limit:
+        page = get(f"{API_BASE}/works", {**params, "cursor": cursor})
+        results = page["results"]
+        works.extend(results)
+        print(f"  {len(works)} résultats (total OpenAlex : {page['meta']['count']})")
+        cursor = page["meta"].get("next_cursor")
+        if len(results) == 0:
+            break
+    return works[:limit]
+
+
+def search_articles(query, days, limit, work_type="article"):
+    """Collecte par requête de recherche (ex : intérêts d'un chercheur)."""
+    from_date = time.strftime("%Y-%m-%d", time.gmtime(time.time() - days * 86400))
+    print(f"Recherche « {query} » depuis le {from_date}...")
+    works = search_works(query, from_date, limit, work_type=work_type)
+    articles = [to_article(w) for w in works]
+    print(f"{len(articles)} articles collectés")
+    return articles
+
+
+# ---------------------------------------------------------------- ORCID
+
+
+ORCID_RE = re.compile(r"\d{4}-\d{4}-\d{4}-\d{3}[\dX]")
+
+
+def extract_orcid(text):
+    """Extrait l'identifiant ORCID (0000-0002-1825-0097) d'un lien ou d'un texte."""
+    match = ORCID_RE.search(text or "")
+    return match.group(0) if match else None
+
+
+def fetch_author(orcid):
+    """Retourne l'auteur OpenAlex correspondant à l'ORCID, ou None."""
+    data = get(f"{API_BASE}/authors", {"filter": f"orcid:{orcid}", "per-page": 1})
+    return data["results"][0] if data["results"] else None
+
+
+def fetch_author_works(author_id, limit=12):
+    """Travaux les plus cités d'un auteur (titre, date, citations)."""
+    data = get(
+        f"{API_BASE}/works",
+        {
+            "filter": f"author.id:{author_id},has_abstract:true",
+            "sort": "cited_by_count:desc",
+            "per-page": limit,
+            "select": "display_name,publication_date,cited_by_count",
+        },
+    )
+    return [
+        {
+            "titre": w["display_name"],
+            "date": w["publication_date"],
+            "citations": w["cited_by_count"],
+        }
+        for w in data["results"]
+    ]
