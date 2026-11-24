@@ -1,2 +1,5 @@
 requests>=2.31
 psycopg2-binary>=2.9
+fastapi>=0.110
+uvicorn[standard]>=0.29
+itsdangerous>=2.1
