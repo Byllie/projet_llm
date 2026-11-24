@@ -40,6 +40,9 @@ services:
       OPENALEX_API_KEY: ${OPENALEX_API_KEY}
       API_SECRET_KEY: ${API_SECRET_KEY}
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8000}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-4.1-mini}
+      FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:-http://localhost:5173,http://localhost:3000}
+      PGCONNECT_TIMEOUT: 5
       PGHOST: db
       PGPORT: 5432
       PGUSER: scholar

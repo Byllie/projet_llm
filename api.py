@@ -1,14 +1,17 @@
-"""API FastAPI : profils chercheurs, recommandations, newsletter, liens trackés.
+"""API FastAPI : profils chercheurs, recommandations, newsletter, liens trackés et chatbot.
 
 Lancement : uvicorn api:app --host 0.0.0.0 --port 8000
 """
 
 import os
 from contextlib import asynccontextmanager
+from typing import Annotated, Literal
 
+import psycopg2
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from bd import (
     create_clicks_table,
@@ -26,6 +29,7 @@ from bd import (
     update_profile_embedding,
     upsert_profile,
 )
+from chatbot import ChatError, chat
 from embed_articles import (
     EMBEDDING_DIM,
     EMBEDDING_MODEL,
@@ -42,6 +46,34 @@ EMBEDDING_WEIGHT = 0.1  # part de l'article cliqué dans le profil mis à jour
 BASE_URL = os.environ.get("APP_BASE_URL", "http://localhost:8000")
 
 
+Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
+ArticleId = Annotated[int, Field(strict=True, gt=0)]
+
+
+class Message(BaseModel):
+    role: Literal["user", "assistant"]
+    content: Text
+
+
+class ChatRequest(BaseModel):
+    message: Text
+    history: list[Message] = Field(default_factory=list, max_length=12)
+    article_ids: list[ArticleId] = Field(default_factory=list, max_length=5)
+
+
+class Source(BaseModel):
+    id: int
+    title: str
+    doi: str | None
+    authors: list[str]
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    sources: list[Source]
+    article_ids: list[int]
+
+
 @asynccontextmanager
 async def lifespan(app):
     conn = db_connect()
@@ -56,6 +88,13 @@ async def lifespan(app):
 
 
 app = FastAPI(title="Scholar Digest", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[origin.strip() for origin in os.environ.get(
+        "FRONTEND_ORIGINS", "http://localhost:5173,http://localhost:3000"
+    ).split(",") if origin.strip()],
+    allow_methods=["POST", "GET"], allow_headers=["Content-Type"],
+)
 
 
 class ProfileIn(BaseModel):
@@ -220,3 +259,32 @@ def newsletter_preview(username: str):
     """Version HTML directement consultable (aperçu du mail)."""
     result = generate_newsletter(username)
     return HTMLResponse(content=result["html"])
+
+
+@app.get("/health")
+def health():
+    try:
+        conn = db_connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM articles WHERE embedding IS NOT NULL")
+                count = cur.fetchone()[0]
+        finally:
+            conn.close()
+    except psycopg2.Error as error:
+        raise HTTPException(503, "PostgreSQL est indisponible.") from error
+    return {"status": "ok", "articles": count}
+
+
+@app.post("/chat", response_model=ChatResponse)
+def post_chat(request: ChatRequest):
+    try:
+        return chat(
+            request.message,
+            [message.model_dump() for message in request.history],
+            list(dict.fromkeys(request.article_ids)),
+        )
+    except ChatError as error:
+        raise HTTPException(error.status_code, str(error)) from error
+    except psycopg2.Error as error:
+        raise HTTPException(503, "Impossible de lire les articles dans PostgreSQL.") from error
